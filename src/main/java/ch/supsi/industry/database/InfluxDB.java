@@ -54,24 +54,28 @@ public class InfluxDB {
      * Logs a beer production event to InfluxDB.
      *
      * @param where the destination of the beer (e.g., Switzerland or Italy).
+     * @param good if a beer is good or rejected
      */
-    public void putBeerOnDB(Where where) {
+    public void putBeerOnDB(Where where, boolean good) {
         Point point = Point.measurement("beer");
         point.addTag("where", where.toString());
         point.addField("count", 1L);
+        point.addField("good", good);
         point.time(Instant.now(), WritePrecision.NS);
 
         putPointOnDB(point);
     }
 
     /**
-     * Logs an error message to InfluxDB.
+     * Logs a status message to InfluxDB.
      *
-     * @param errorMessage the error message to log.
+     * @param type the type of message
+     * @param statusMessage the status message to log.
      */
-    public void putErrorOnDB(String errorMessage) {
-        Point point = Point.measurement("error");
-        point.addField("error", errorMessage);
+    public void putStatusOnDB(StatusType type, String statusMessage) {
+        Point point = Point.measurement("status");
+        point.addTag("type", type.toString());
+        point.addField("message", statusMessage);
         point.time(Instant.now(), WritePrecision.NS);
 
         putPointOnDB(point);

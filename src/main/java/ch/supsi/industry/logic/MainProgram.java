@@ -1,6 +1,7 @@
 package ch.supsi.industry.logic;
 
 import ch.supsi.industry.database.InfluxDB;
+import ch.supsi.industry.database.StatusType;
 import org.iot.raspberry.grovepi.GrovePi;
 import org.iot.raspberry.grovepi.pi4j.GrovePi4J;
 import org.iot.raspberry.grovepi.sensors.analog.GroveLightSensor;
@@ -12,6 +13,7 @@ import org.iot.raspberry.grovepi.sensors.listener.GroveButtonListener;
 import org.iot.raspberry.grovepi.sensors.synch.SensorMonitor;
 
 import java.io.IOException;
+import java.util.Random;
 
 /**
  * The Main program for monitoring the final stage of a beer production line using Grove sensors on a Raspberry Pi.
@@ -22,16 +24,14 @@ import java.io.IOException;
  */
 public class MainProgram implements GroveButtonListener {
 
-
     /** Interval in milliseconds between sensor reads. */
     public static final int READ_INTERVAL = 500;
 
     /** Timeout interval in milliseconds to detect inactivity. */
-    public static final int WAIT_INTERVAL = 10_000;
+    public static final int WAIT_INTERVAL = 15_000;
 
     /** Threshold for detecting significant light changes. */
     public static final int LIGHT_DIFFERENCE = 20;
-
 
     private final SensorMonitor<GroveRotaryValue> rotarySensorMonitor;
     private final SensorMonitor<Double> lightSensorRMonitor;
@@ -41,11 +41,10 @@ public class MainProgram implements GroveButtonListener {
 
     private final InfluxDB influxDB;
 
-    private boolean inAcquisition = true;
+    private StatusType status;
 
     private double lastLightRValue = -1.0;
     private double lastLightLValue = -1.0;
-
 
     /**
      * Private constructor that initializes all sensors and the InfluxDB connection.
@@ -69,12 +68,11 @@ public class MainProgram implements GroveButtonListener {
             bindSensor();
         } catch (IOException e) {
             System.err.println(e.getMessage());
-            inAcquisition = false;
+            status = StatusType.ERROR;
             setErrorLCD(e.getMessage());
             throw new RuntimeException(e);
         }
     }
-
 
     /**
      * Factory method to create a new instance of the main program.
@@ -85,7 +83,6 @@ public class MainProgram implements GroveButtonListener {
     public static MainProgram newInstance() throws Exception {
         return new MainProgram();
     }
-
 
     /** Called when the button is released (not used). */
     @Override
@@ -101,30 +98,42 @@ public class MainProgram implements GroveButtonListener {
      */
     @Override
     public void onClick() {
-        if (inAcquisition)
-            return;
+        switch (status) {
+            case ACTIVE:
+                status = StatusType.INACTIVE;
+                break;
+            case INACTIVE:
+            case ERROR:
+                status = StatusType.ACTIVE;
+                break;
+        }
+
+        System.out.println("Clicked: " + status);
 
         try {
-            setMessageLCD("Acquisition...");
-            inAcquisition = true;
+            influxDB.putStatusOnDB(status, "");
+            setMessageLCD(status == StatusType.ACTIVE ? "In production..." : "In idle...");
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
 
-
     /**
      * Binds the button listener and starts all sensor monitors.
      */
-    private void bindSensor() {
+    private void bindSensor() throws IOException {
         button.setButtonListener(this);
 
         // start monitor
         rotarySensorMonitor.start();
         lightSensorRMonitor.start();
         lightSensorLMonitor.start();
-    }
 
+        // status = StatusType.ACTIVE; // If raspberry not work
+        status = StatusType.INACTIVE;
+        influxDB.putStatusOnDB(status, "Machine started: wait activation");
+        setMessageLCD("In attesa...");
+    }
 
     /**
      * Main loop for acquiring sensor data and sending it to InfluxDB.
@@ -134,8 +143,6 @@ public class MainProgram implements GroveButtonListener {
      * @throws IOException if an error occurs while writing to the LCD.
      */
     public void runAcquisition() throws InterruptedException, IOException {
-        setMessageLCD("Acquisition...");
-
         boolean acquiredRotary = false;
         boolean acquiredLightR = false;
         boolean acquiredLightL = false;
@@ -145,17 +152,17 @@ public class MainProgram implements GroveButtonListener {
         while (true) {
             Thread.sleep(500);
 
-            if (inAcquisition && (System.currentTimeMillis() - startTime) >= WAIT_INTERVAL) {
-                influxDB.putErrorOnDB("Timeout: no beer production");
-                setErrorLCD("Error");
-                inAcquisition = false;
-            }
+            if (status == StatusType.ACTIVE) {
+                if ((System.currentTimeMillis() - startTime) >= WAIT_INTERVAL){
+                    status = StatusType.ERROR;
+                    influxDB.putStatusOnDB(status, "Timeout: no beer production");
+                    setErrorLCD("Error");
+                    continue;
+                }
 
-            if (inAcquisition) {
                 if (rotarySensorMonitor.isValid()) {
                     GroveRotaryValue rotaryValue = rotarySensorMonitor.getValue();
                     double degree = rotaryValue.getDegrees();
-                    System.out.println(degree);
 
                     if (degree < 100) { // Right rotation
                         if (acquiredRotary)
@@ -188,7 +195,7 @@ public class MainProgram implements GroveButtonListener {
                         if (acquiredLightR)
                             continue;
 
-                        influxDB.putBeerOnDB(Where.SWISS);
+                        influxDB.putBeerOnDB(Where.SWISS, isBeerGood());
                         acquiredLightR = true;
                     } else {
                         acquiredLightR = false;
@@ -209,7 +216,7 @@ public class MainProgram implements GroveButtonListener {
                         if (acquiredLightL)
                             continue;
 
-                        influxDB.putBeerOnDB(Where.BADILAND);
+                        influxDB.putBeerOnDB(Where.BADILAND, isBeerGood());
                         acquiredLightL = true;
                     } else {
                         acquiredLightL = false;
@@ -241,5 +248,9 @@ public class MainProgram implements GroveButtonListener {
     private void setErrorLCD(String errorMessage) throws IOException {
         rgbLcd.setRGB(255, 0, 0);
         rgbLcd.setText(errorMessage);
+    }
+
+    private boolean isBeerGood() {
+        return new Random().nextDouble() > 0.1;
     }
 }
