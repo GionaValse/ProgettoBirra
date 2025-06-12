@@ -129,8 +129,8 @@ public class MainProgram implements GroveButtonListener {
         lightSensorRMonitor.start();
         lightSensorLMonitor.start();
 
-        // status = StatusType.ACTIVE; // If raspberry not work
-        status = StatusType.INACTIVE;
+        status = StatusType.ACTIVE; // If raspberry not work
+        // status = StatusType.INACTIVE;
         influxDB.putStatusOnDB(status, "Machine started: wait activation");
         setMessageLCD("In attesa...");
     }
