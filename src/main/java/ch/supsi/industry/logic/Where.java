@@ -12,7 +12,7 @@ public enum Where {
     SWISS("Svizzera"),
 
     /** Beer destined for Italy. */
-    BADILAND("Italia");
+    ITALY("Italia");
 
     private final String name;
 

@@ -216,7 +216,7 @@ public class MainProgram implements GroveButtonListener {
                         if (acquiredLightL)
                             continue;
 
-                        influxDB.putBeerOnDB(Where.BADILAND, isBeerGood());
+                        influxDB.putBeerOnDB(Where.ITALY, isBeerGood());
                         acquiredLightL = true;
                     } else {
                         acquiredLightL = false;
